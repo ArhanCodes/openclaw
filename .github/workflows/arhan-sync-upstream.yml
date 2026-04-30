@@ -1,0 +1,128 @@
+# Auto-sync ArhanCodes/openclaw with upstream openclaw/openclaw.
+#
+# Runs hourly. Fast-forwards when possible. On real merge conflict, opens an
+# issue if issues are enabled on the repo, otherwise writes a CONFLICT.md
+# file at the repo root and pushes it on a separate branch — pick whichever
+# notification path fits your repo settings.
+
+name: arhan-sync-upstream
+
+on:
+  schedule:
+    - cron: "13 * * * *"   # hourly at :13
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork main with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "ArhanCodes"
+          git config user.email "arhanh1234@gmail.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/openclaw/openclaw.git || true
+          git fetch upstream main --tags
+
+      - name: Attempt fast-forward, fall back to merge, abort on conflict
+        id: sync
+        run: |
+          set -euo pipefail
+
+          BEFORE=$(git rev-parse HEAD)
+          UPSTREAM=$(git rev-parse upstream/main)
+          echo "before=$BEFORE"   >> "$GITHUB_OUTPUT"
+          echo "upstream=$UPSTREAM" >> "$GITHUB_OUTPUT"
+
+          if [ "$BEFORE" = "$UPSTREAM" ]; then
+            echo "result=already-current" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge --ff-only upstream/main; then
+            echo "result=fast-forward" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge --no-edit -m "chore: sync with upstream openclaw/main" upstream/main; then
+            echo "result=merge" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git merge --abort || true
+          echo "result=conflict" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      - name: Push to main
+        if: steps.sync.outputs.result == 'fast-forward' || steps.sync.outputs.result == 'merge'
+        run: git push origin main
+
+      - name: Write conflict notice (if issues are disabled)
+        if: failure() && steps.sync.outputs.result == 'conflict'
+        run: |
+          cat > CONFLICT.md <<EOF
+          # Upstream sync conflict — manual merge required
+
+          Generated $(date -u +"%Y-%m-%d %H:%M UTC") by arhan-sync-upstream.
+
+          - Fork main at: ${{ steps.sync.outputs.before }}
+          - Upstream main at: ${{ steps.sync.outputs.upstream }}
+
+          Resolve locally:
+
+              git remote add upstream https://github.com/openclaw/openclaw.git
+              git fetch upstream main
+              git merge upstream/main
+              # resolve conflicts, then:
+              git push origin main
+          EOF
+          git add CONFLICT.md
+          git commit -m "ci: upstream sync conflict — manual merge required"
+          git push origin main || true
+
+      - name: Open issue (if issues are enabled)
+        if: failure() && steps.sync.outputs.result == 'conflict'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.get({
+              owner: context.repo.owner, repo: context.repo.repo
+            });
+            if (!data.has_issues) {
+              core.info("Issues disabled on repo; CONFLICT.md was committed instead.");
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: "Upstream sync conflict — manual merge required",
+              body: [
+                "Hourly upstream sync hit a merge conflict.",
+                "",
+                `- Fork main at: \`${{ steps.sync.outputs.before }}\``,
+                `- Upstream main at: \`${{ steps.sync.outputs.upstream }}\``,
+                "",
+                "Resolve manually:",
+                "```bash",
+                "git remote add upstream https://github.com/openclaw/openclaw.git",
+                "git fetch upstream main",
+                "git merge upstream/main",
+                "# resolve conflicts, then:",
+                "git push origin main",
+                "```",
+              ].join("\n"),
+              labels: ["upstream-sync", "conflict"],
+            });

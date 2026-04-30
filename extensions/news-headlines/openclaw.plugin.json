@@ -1,0 +1,33 @@
+{
+  "id": "news-headlines",
+  "uiHints": {
+    "feeds": {
+      "label": "RSS Feeds",
+      "advanced": true,
+      "help": "Comma-separated list of name=url pairs. Default: BBC World + Khaleej Times."
+    },
+    "limitPerFeed": {
+      "label": "Headlines per feed",
+      "placeholder": "6"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "feeds": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "url": { "type": "string" }
+          },
+          "required": ["name", "url"]
+        }
+      },
+      "limitPerFeed": { "type": "number", "minimum": 1, "maximum": 50 }
+    }
+  }
+}

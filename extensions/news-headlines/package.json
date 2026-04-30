@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/news-headlines",
+  "version": "0.1.0",
+  "description": "Pull news headlines from public RSS feeds for the morning brief. No API keys, no rate limits, no per-day quotas. Default sources: BBC World + Khaleej Times (UAE).",
+  "type": "module",
+  "private": true,
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "install": {
+      "defaultChoice": "local",
+      "minHostVersion": ">=2026.4.10"
+    },
+    "compat": { "pluginApi": ">=2026.4.25" }
+  }
+}
